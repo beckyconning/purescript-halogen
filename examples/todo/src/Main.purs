@@ -53,6 +53,7 @@ data AppState = TodoList [Todo]
 data Input = NewTodo String
            | UpdateDescription Number String
            | MarkCompleted Number Boolean
+           | RemoveTodo Number
 
 -- | The view is a state machine, consuming inputs, and generating HTML documents which in turn, generate new inputs
 ui :: forall m. (Alternative m) => Component m Input Input
@@ -102,6 +103,14 @@ ui = render <$> stateful (TodoList []) update
                           , A.value todo.description
                           ]
                           []
+
+               , H.span [ A.class_ B.inputGroupBtn ]
+                        [ H.button [ A.classes [ B.btn, B.btnDefault ]
+                                   , A.title "Remove task"
+                                   , A.onClick (A.input_ $ RemoveTodo index)
+                                   ]
+                                   [ H.text "✖" ]
+                        ]
                ]
         ]
 
@@ -119,6 +128,8 @@ ui = render <$> stateful (TodoList []) update
     where
     updateCompleted :: Todo -> Todo
     updateCompleted todo = todo { completed = completed }
+
+  update (TodoList todos) (RemoveTodo i) = TodoList $ deleteAt i 1 todos
 
 main = do
   Tuple node driver <- runUIWith ui postRender
