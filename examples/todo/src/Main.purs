@@ -42,30 +42,51 @@ appendToBody :: forall eff. HTMLElement -> Eff (dom :: DOM | eff) Unit
 appendToBody e = document globalWindow >>= (body >=> flip appendChild e)
 
 postRender :: forall eff. Input -> HTMLElement -> Driver Input eff -> Eff (HalogenEffects eff) Unit
+postRender (ChangeRoute s) _ _ = Routing.setHash s
 postRender _ _ _               = pure unit
 
 type Todo = { description :: String, completed :: Boolean }
 
 -- | The state of the application
-data AppState = TodoList [Todo]
+data AppState = Splash | TodoList [Todo]
 
 -- | Inputs to the state machine
-data Input = NewTodo String
+data Input = ChangeRoute String
+           | NewTodo String
            | UpdateDescription Number String
            | MarkCompleted Number Boolean
            | RemoveTodo Number
 
 -- | The view is a state machine, consuming inputs, and generating HTML documents which in turn, generate new inputs
 ui :: forall m. (Alternative m) => Component m Input Input
-ui = render <$> stateful (TodoList []) update
+ui = render <$> stateful Splash update
   where
   initialState :: AppState
   initialState = TodoList []
 
   render :: AppState -> H.HTML (m Input)
-  render (TodoList todos)  =
+  render appState =
     H.div [ A.class_ B.container ]
-          [ renderTodoList todos ]
+          [ router appState ]
+
+  router :: AppState -> H.HTML (m Input)
+  router Splash           = renderSplash
+  router (TodoList todos) = renderTodoList todos
+
+  renderSplash :: H.HTML (m Input)
+  renderSplash =
+    H.div [ A.class_ B.jumbotron ]
+          [ H.h1     []
+                     [ H.text "PureScript Todo" ]
+
+          , H.p      []
+                     [ H.text "100% To Do, 0% MVC" ]
+
+          , H.button [ A.classes [ B.btn, B.btnPrimary ]
+                     , A.onClick (A.input_ (ChangeRoute "todo-list"))
+                     ]
+                     [ H.text "Continue" ]
+          ]
 
   renderTodoList :: [Todo] -> H.HTML (m Input)
   renderTodoList todos =
@@ -115,6 +136,10 @@ ui = render <$> stateful (TodoList []) update
         ]
 
   update :: AppState -> Input -> AppState
+  update _ (ChangeRoute "todo-list") = TodoList []
+
+  update _ (ChangeRoute _) = Splash
+
   update (TodoList todos) (NewTodo description) = TodoList (todos ++ [newTodo])
     where
     newTodo = { description: description, completed: false }
@@ -134,3 +159,4 @@ ui = render <$> stateful (TodoList []) update
 main = do
   Tuple node driver <- runUIWith ui postRender
   appendToBody node
+  Routing.hashChanged (\oldHash newHash -> driver (ChangeRoute newHash))
