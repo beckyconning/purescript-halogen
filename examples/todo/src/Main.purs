@@ -26,8 +26,8 @@ import Halogen
 import Halogen.Signal
 import Halogen.Component
 
-import qualified Halogen.Mixin.UndoRedo as Undo
-import qualified Halogen.Mixin.Router as Router
+import qualified Routing as Routing
+import qualified Routing.Hash as Routing
 
 import qualified Halogen.HTML as H
 import qualified Halogen.HTML.Attributes as A
@@ -41,90 +41,123 @@ import qualified Halogen.Themes.Bootstrap3.InputGroup as BI
 appendToBody :: forall eff. HTMLElement -> Eff (dom :: DOM | eff) Unit
 appendToBody e = document globalWindow >>= (body >=> flip appendChild e)
 
-newtype Task = Task { description :: String, completed :: Boolean }
+postRender :: forall eff. Input -> HTMLElement -> Driver Input eff -> Eff (HalogenEffects eff) Unit
+postRender (ChangeRoute s) _ _ = Routing.setHash s
+postRender _ _ _               = pure unit
+
+type Todo = { description :: String, completed :: Boolean }
 
 -- | The state of the application
-data State = State [Task]
+data AppState = Splash | TodoList [Todo]
 
 -- | Inputs to the state machine
 data Input
-  = NewTask (Maybe String)
+  = ChangeRoute String
+  | NewTodo String
   | UpdateDescription Number String
   | MarkCompleted Number Boolean
-  | RemoveTask Number
-  | Undo
-  | Redo
-
-instance inputSupportsUndoRedo :: Undo.SupportsUndoRedo Input where
-  fromUndoRedo Undo.Undo = Undo
-  fromUndoRedo Undo.Redo = Redo
-  toUndoRedo Undo = Just Undo.Undo
-  toUndoRedo Redo = Just Undo.Redo
-  toUndoRedo _ = Nothing
+  | RemoveTodo Number
 
 -- | The view is a state machine, consuming inputs, and generating HTML documents which in turn, generate new inputs
 ui :: forall m. (Alternative m) => Component m Input Input
-ui = render <$> stateful (Undo.undoRedoState (State [])) (Undo.withUndoRedo update)
+ui = render <$> stateful Splash update
   where
-  render :: Undo.UndoRedoState State -> H.HTML (m Input)
-  render st =
-    case Undo.getState st of
-      State ts ->
-        H.div [ A.class_ B.container ]
-              [ H.h1 [ A.id_ "header" ] [ H.text "todo list" ]
-              , toolbar st
-              , H.div_ (zipWith task ts (0 .. length ts))
-              ]
+  initialState :: AppState
+  initialState = TodoList []
 
-  toolbar :: forall st. Undo.UndoRedoState st -> H.HTML (m Input)
-  toolbar st = H.p [ A.class_ B.btnGroup ]
+  render :: AppState -> H.HTML (m Input)
+  render appState =
+    H.div [ A.class_ B.container ]
+          [ router appState ]
+
+  router :: AppState -> H.HTML (m Input)
+  router Splash           = renderSplash
+  router (TodoList todos) = renderTodoList todos
+
+  renderSplash :: H.HTML (m Input)
+  renderSplash =
+    H.div [ A.class_ B.jumbotron ]
+          [ H.h1     []
+                     [ H.text "PureScript Todo" ]
+
+          , H.p      []
+                     [ H.text "100% To Do, 0% MVC" ]
+
+          , H.button [ A.classes [ B.btn, B.btnPrimary ]
+                     , A.onClick (A.input_ (ChangeRoute "todo-list"))
+                     ]
+                     [ H.text "Continue" ]
+          ]
+
+  renderTodoList :: [Todo] -> H.HTML (m Input)
+  renderTodoList todos =
+    H.div []
+          [ H.h1 [ A.id_ "header" ] [ H.text "Todo list" ]
+          , renderToolbar
+          , H.div_ (zipWith renderTodo todos (0 .. length todos))
+          ]
+
+  renderToolbar :: H.HTML (m Input)
+  renderToolbar = H.p [ A.class_ B.btnGroup ]
                    [ H.button [ A.classes [ B.btn, B.btnPrimary ]
-                              , A.onClick (A.input_ $ NewTask Nothing)
+                              , A.onClick (A.input_ $ NewTodo "")
                               ]
-                              [ H.text "New Task" ]
-                   , H.button [ A.class_ B.btn
-                              , A.enabled (Undo.canUndo st)
-                              , A.onClick (A.input_ Undo)
-                              ]
-                              [ H.text "Undo" ]
-                   , H.button [ A.class_ B.btn
-                              , A.enabled (Undo.canRedo st)
-                              , A.onClick (A.input_ Redo)
-                              ]
-                              [ H.text "Redo" ]
+                              [ H.text "New Todo" ]
                    ]
 
-  task :: Task -> Number -> H.HTML (m Input)
-  task (Task task) index = H.p_ <<< pure $
-    BI.inputGroup
-      (Just (BI.RegularAddOn
-        (H.input [ A.class_ B.checkbox
-                 , A.type_ "checkbox"
-                 , A.checked task.completed
-                 , A.title "Mark as completed"
-                 , A.onChecked (A.input (MarkCompleted index))
-                 ]
-                 [])))
-      (H.input [ A.classes [ B.formControl ]
-               , A.placeholder "Description"
-               , A.onValueChanged (A.input (UpdateDescription index))
-               , A.value task.description
-               ]
-               [])
-      (Just (BI.ButtonAddOn
-        (H.button [ A.classes [ B.btn, B.btnDefault ]
-                  , A.title "Remove task"
-                  , A.onClick (A.input_ $ RemoveTask index)
-                  ]
-                  [ H.text "✖" ])))
+  renderTodo :: Todo -> Number -> H.HTML (m Input)
+  renderTodo todo index =
+    H.p []
+        [ H.div [ A.class_ B.inputGroup ]
+                [ H.span [ A.class_ B.inputGroupAddon ]
+                         [ H.input  [ A.class_ B.checkbox
+                                    , A.type_ "checkbox"
+                                    , A.checked todo.completed
+                                    , A.title "Mark as completed"
+                                    , A.onChecked (A.input (MarkCompleted index))
+                                    ]
+                                    []
+                         ]
 
-  update :: State -> Input -> State
-  update (State ts) (NewTask s) = State (ts ++ [Task { description: fromMaybe "" s, completed: false }])
-  update (State ts) (UpdateDescription i description) = State $ modifyAt i (\(Task t) -> Task (t { description = description })) ts
-  update (State ts) (MarkCompleted i completed) = State $ modifyAt i (\(Task t) -> Task (t { completed = completed })) ts
-  update (State ts) (RemoveTask i) = State $ deleteAt i 1 ts
+               , H.input  [ A.classes [ B.formControl ]
+                          , A.placeholder "Description"
+                          , A.onValueChanged (A.input (UpdateDescription index))
+                          , A.value todo.description
+                          ]
+                          []
+
+               , H.span [ A.class_ B.inputGroupBtn ]
+                        [ H.button [ A.classes [ B.btn, B.btnDefault ]
+                                   , A.title "Remove task"
+                                   , A.onClick (A.input_ $ RemoveTodo index)
+                                   ]
+                                   [ H.text "✖" ]
+                        ]
+               ]
+        ]
+
+  update :: AppState -> Input -> AppState
+  update _ (ChangeRoute "todo-list") = TodoList []
+
+  update _ (ChangeRoute _) = Splash
+
+  update (TodoList todos) (NewTodo description) = TodoList (todos ++ [newTodo])
+    where
+    newTodo = { description: description, completed: false }
+
+  update (TodoList todos) (UpdateDescription i description) = TodoList $ modifyAt i updateDesc todos
+    where
+    updateDesc :: Todo -> Todo
+    updateDesc todo = todo { description = description }
+
+  update (TodoList todos) (MarkCompleted i completed) = TodoList $ modifyAt i updateCompleted todos
+    where
+    updateCompleted :: Todo -> Todo
+    updateCompleted todo = todo { completed = completed }
+
+  update (TodoList todos) (RemoveTodo i) = TodoList $ deleteAt i 1 todos
 
 main = do
-  Tuple node driver <- runUI ui
+  Tuple node driver <- runUIWith ui postRender
   appendToBody node
-  Router.onHashChange (NewTask <<< Just <<< S.drop 1 <<< Router.runHash) driver
+  Routing.hashChanged (\oldHash newHash -> driver (ChangeRoute newHash))

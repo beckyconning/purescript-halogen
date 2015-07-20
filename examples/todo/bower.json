@@ -11,7 +11,9 @@
     "output"
   ],
   "dependencies": {
-    "purescript-halogen": "master",
-    "purescript-halogen-bootstrap": "master"
+    "purescript-halogen": "4608a541e5fe0e8aade80811f470697a1a4cd614",
+    "purescript-halogen-bootstrap": "https://github.com/beckyconning/purescript-halogen-bootstrap.git#a70f1063f2c30da6e59b4884992c011c05744600",
+    "purescript-routing": "1e7cf5687ddab496f926fce4f7d64fa587041f92"
+
   }
 }
